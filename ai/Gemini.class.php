@@ -1,13 +1,15 @@
 <?php
 namespace ai;
 require_once(RootPath."/gemini.config.php");
+require_once(RootPath."/ai/Http.class.php");
+require_once(RootPath."/ai/Provider.class.php");
 
 // Free tier (per model)
 // Input token limit per minute: 1000000
 // Requests limit per day: 1500
 // Requests limit per minute: 15
 
-class Gemini {
+class Gemini extends Provider {
     private static string $defaultModel = "gemini-1.5-flash";
     private static string $apiBaseUrl = "https://generativelanguage.googleapis.com/v1beta/models/";
     private string $apiKey;
@@ -15,30 +17,60 @@ class Gemini {
 
     public function __construct(string $model = null) {
         global $GEMINI_API_KEY;
+        parent::__construct();
         $this->apiKey = $GEMINI_API_KEY;
         $this->model = $model ? $model : static::$defaultModel;
     }
 
-    public function ask(string $message): string {
-        $result = Gemini::http(
-            "POST",
-            $this->getGenerateContentUrl(),
-            array(
-                "contents" => array(
+    protected function getInstructions(): array {
+        $instructions = implode(" ", array_map(fn (SystemMessage $message) => $message->getText(), array_filter($this->messages, fn (Message $message) => $message instanceof SystemMessage)));
+
+        return array(
+            "parts" => array(
+                "text" => $instructions,
+            ),
+        );
+    }
+
+    protected function getMessages(): array {
+        $contents = array();
+
+        foreach ($this->messages as $message) {
+            $role = static::formatRole($message->getRole());
+
+            if (!$role) {
+                continue;
+            }
+
+            $contents[] = array(
+                "role" => $role,
+                "parts" => array(
                     array(
-                        "role" => "user",
-                        "parts" => array(
-                            array(
-                                "text" => $message,
-                            ),
-                        ),
+                        "text" => $message->getText(),
                     ),
                 ),
+            );
+        }
+
+        return $contents;
+    }
+
+    protected function generateText(): string {
+        $result = Http::post(
+            $this->getGenerateContentUrl(),
+            array(
+                "system_instruction" => $this->getInstructions(),
+                "contents" => $this->getMessages(),
             ),
-            true,
         );
 
-        $answer = trim($result["candidates"][0]["content"]["parts"][0]["text"]);
+        if ($result) {
+            $answer = trim($result["candidates"][0]["content"]["parts"][0]["text"]);
+        }
+        else {
+            throw new \Exception("Service temporarily unavailable, please try again later.");
+        }
+
         return $answer;
     }
 
@@ -46,31 +78,14 @@ class Gemini {
         return Gemini::$apiBaseUrl.$this->model.":generateContent?key=".$this->apiKey;
     }
 
-    private static function http(string $method, string $url, ?array $body = null, bool $json = false) {
-        $options = array(
-            "http" => array(
-                "method" => strtoupper($method),
-            ),
+    protected static function formatRole(MessageRole $role): ?string {
+        $mapping = array(
+            MessageRole::System->value => null,
+            MessageRole::User->value => "user",
+            MessageRole::Ai->value => "model",
+            MessageRole::Tool->value => "tool",
         );
 
-        $headers = array();
-
-        if (!is_null($body) && is_array($body)) {
-            if ($json) {
-                $headers["Content-Type"] = "application/json";
-                $options["http"]["content"] = json_encode($body);
-            }
-            else {
-                $headers["Content-Type"] =  "application/x-www-form-urlencoded";
-                $options["http"]["content"] = http_build_query($body);
-            }
-        }
-
-        if (count($headers)) {
-            $options["http"]["header"] = implode("\n", array_map(fn ($header, $value) => $header.": ".$value, array_keys($headers), array_values($headers)));
-        }
-
-        $result = file_get_contents($url, false, stream_context_create($options));
-        return json_decode($result, true);
+        return $mapping[$role->value];
     }
 }

@@ -5,19 +5,6 @@ namespace ai;
 #[\Attribute(\Attribute::TARGET_METHOD)]
 class Tool {}
 
-/*
-Types = STRING
-        INTEGER
-        BOOLEAN
-        NUMBER
-        ARRAY
-        OBJECT
-
-
-When ENUM -> STRING + "enum": ["value0", "value1", ...]
-When ARRAY -> ARRAY + "items": {"type": "string", description: "item desc"}
-*/
-
 class ToolDefinitionParameter {
     private string $name;
     private string $description;
@@ -164,7 +151,6 @@ class ToolDefinition {
             $descriptions["description"] = trim($matches[0]);
         }
 
-        // todo insert possible types here, including arrays + enums?
         if (preg_match_all("/^@param\s+(?:(?P<type>[^\\$\s]+)\s+)?\\$(?P<name>[^\s]+)(?P<description>.*)$/m", $doc, $matches, PREG_SET_ORDER)) {
             foreach ($matches as $match) {
                 $descriptions["parameters"][$match["name"]] = array(
